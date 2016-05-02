@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>Uhhnomia</title>
+    <link rel="stylesheet" type="text/css" href="assets/css/modals.css">
+    <link rel="stylesheet" type="text/css" href="assets/css/main.css">
+  </head>
+  <body onload="init();">
+    <canvas id="drawCanvas"></canvas>
+    <img id="logo" src="assets/images/logo_large_nodot.png"></img>
+    <!-- The Modal -->
+    <div class="loginModal">
+
+      <!-- Modal content -->
+      <div class="loginModal-content">
+        <input id="loginName" class="loginModal-textInput" type="text" placeholder="Name" ></input>
+        <input id="loginRoom" class="loginModal-textInput" type="text" placeholder="Room" ></input>
+        <input id="loginButton" class="loginModal-button" type="button" value="Go"></input>
+      </div>
+
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/assets/vendor/CSSPlugin.js"></script>
+    <script src="https://code.createjs.com/preloadjs-0.6.2.min.js"></script>
+    <script src="https://code.createjs.com/tweenjs-0.6.2.min.js"></script>
+    <script src="https://code.createjs.com/easeljs-0.8.2.min.js"></script>
+    <script src="http://code.jquery.com/jquery-1.11.1.js"></script>
+    <script src="main.js"></script>
+  </body>
+</html>
