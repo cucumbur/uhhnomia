@@ -3,10 +3,15 @@ var app = express();
 var http = require('http').Server(app);
 var io = require('socket.io')(http);
 
+var array = require('lodash/array');
+
+var rooms = [];
+var testdeck = require('./data/testdeck.json');
+
 var program = require('commander');
 var port = 3012
-var rooms = [];
-var testdeck = require('./testdeck.json');
+
+
 // CLI option handler
 program
   .version('1.0.0')
@@ -18,19 +23,18 @@ if (program.port) {
 
 // Development route /
 app.get('/', function (req, res) {
-  res.sendFile(__dirname + '/index.html')
+  res.sendFile(__dirname + '/public/index.html')
 });
 
 // Production route /uhhnomia/
 app.get('/uhhnomia/', function (req, res) {
-  res.sendFile(__dirname + '/index.html')
+  res.sendFile(__dirname + '/public/index.html')
 });
 
 // Serve asset folders and main game js
-app.use('/assets', express.static(__dirname + '/assets'));
-app.get('/main.js', function (req, res) {
-  res.sendFile(__dirname + '/main.js')
-});
+app.use('/assets', express.static(__dirname + '/public/assets'));
+app.use('/js', express.static(__dirname + '/public/js'));
+app.use('/css', express.static(__dirname + '/public/css'));
 
 // Server listening
 http.listen(port, function () {
@@ -42,18 +46,128 @@ io.on('connection', function(socket){
   // Log sockets upon connection and disconnection
   console.log('Sock ' + socket.id + " connected");
   socket.on('disconnect', function(){
+    //TODO: Handle player disconnecting
+    userDisconnect(socket);
     console.log('Sock  ' + socket.id + " disconnected");
   });
 
-  socket.on('join room', function(joinData){
-    console.log(joinData.name + " is joining room " + joinData.room);
+  // player tries to "login" and join / create a room
+  socket.on('join room try', function(loginData){
+    roomName = loginData.roomName;
+    socket.name = loginData.userName;
+    console.log(socket.name + " attempting to join " + roomName);
+    if (!rooms[roomName]) {
+      console.log('roomname:' + roomName);
+      rooms[roomName] = new Room(roomName);
+      rooms[roomName].addUser(socket);
+      socket.room = roomName;
+      console.log(socket.name + " created new room " + roomName);
+      socket.emit('join room success', rooms[roomName].getInfo());
+      socket.broadcast.in(roomName).emit('player joined room', socket.name);
+      return true;
+    }
+    if (rooms[roomName].addUser(socket)) {
+      socket.room = roomName;
+      console.log(socket.name + " joined " + roomName);
+      socket.emit('join room success', rooms[roomName].getInfo());
+      socket.broadcast.in(roomName).emit('player joined room', socket.name);
+      return true;
+    }
+    socket.emit('join room fail');
+    return false;
   });
+
+  // player leaves a room
+  socket.on('leave room', function () {
+    if (socket.room) {
+      socket.left = true;
+      rooms[socket.room].clearLeftPlayers();
+    }
+    socket.leave(socket.room);
+    socket.room = null;
+  });
+
+
+  // Make sure this isn't called redundantly a bunch by every function.
+  // Only when prompted to by a single user
+  socket.on('update room info', function () {
+    io.in(socket.room).emit('update room info', rooms[socket.room].getInfo());
+  });
+
+  socket.on('chat message', function (message) {
+    //TODO: Handle player leaving a room, removing from roomlist, disbanding room if need be
+    socket.broadcast.in(socket.room).emit('chat message', {text:message, sentBy:socket.name}); //FIXME: Use room code. not total broadcast
+  });
+
 
 });
 
 // Game helper functions and logic
-var Room = function Room() {
-  this.maxPlayers = 6;
+var Room = function Room(name) {
+  this.name = name;
+  this.maxPlayers = 2;
   this.deck = testdeck;
   this.players = [];
+  this.playing = false;
 }
+Room.prototype = {
+  addUser: function addUser(user) {
+    if (this.players.length == this.maxPlayers) {
+      console.log(user.name + "'s join unsuccessful: room " + this.name + " full");
+      return false;
+    }
+    if (this.playing) {
+      console.log(user.name + "'s join unsuccessful: room " + this.name + " is playing");
+      return false;
+    }
+    this.players.push(user);
+    // Puts the socket in the corresponding socket room
+    user.join(this.name);
+    return true;
+  },
+  clearLeftPlayers: function() {
+    var roomName = this.name
+    array.remove(this.players, function(elem) {
+      if (elem.left){
+        console.log(elem.name + " left room " + roomName);
+        elem.broadcast.in(roomName).emit('player left room', elem.name);
+        return true;
+      }
+      return false;
+    });
+    if (this.players.length == 0) {
+      this.disband();
+    }
+  },
+  disband: function() {
+    roomName = this.name;
+    console.log(roomName + " disbanded");
+    delete rooms[roomName];
+  },
+  getInfo: function getInfo() {
+    var roomPlayers = this.players.map(function(player){
+      return player.name;
+    });
+    var info = {
+      name:roomName,
+      players:roomPlayers,
+      deck:this.deck.name,
+      maxPlayers:this.maxPlayers
+    }
+    return info;
+  }
+
+}
+
+// Handles disconnects. Leaves the room if in a room
+// and deals with the game if they left a game
+function userDisconnect(socket) {
+  if (socket.room) {
+    socket.left = true;
+    rooms[socket.room].clearLeftPlayers();
+  }
+}
+//TODO: when a room has zero players, delete it
+//TODO: when the server is closed, send a message to all players so their client can handle it
+//TODO: code for when the player disconnects but still has browser open (ie, internet cut out)
+//TODO: PROFANITY FILTERS (swearjar)

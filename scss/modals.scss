@@ -1,0 +1,87 @@
+@import 'colors';
+
+.loginModal {
+  // display: none;
+  opacity: 0;
+  position: fixed;
+  z-index: 1;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+}
+
+.loginModal-content {
+  background-color: $WHITE;
+  margin: 15% auto;
+  padding: 0px;
+  width: 40%;
+}
+
+.loginModal-textInput {
+  padding: 10px;
+  border: none;
+  border-bottom: solid 2px #c9c9c9;
+  transition: border 0.3s;
+  width:40%;
+}
+// TODO: Make this button look nice. Figure out how to make it so that both login boxes take up 40% of the input and the button fills the rest
+.loginModal-button {
+  padding: 10px;
+  border: none;
+  border-bottom: solid 2px #c9c9c9;
+  transition: border 0.3s;
+}
+
+.loginModal-textInput input[type="text"]:focus {
+  border-bottom: solid 2px #969696;
+}
+
+// .waitingScreen {
+//   // display: none;
+//   opacity: 0;
+//   position: fixed;
+//   z-index: 1;
+//   left: 0;
+//   top: 0;
+//   width: 100%;
+//   height: 100%;
+//   overflow: auto;
+// }
+
+.waitingTable {
+  background-color: $WHITE;
+  margin: 100px auto;
+  padding: 0px;
+  //width: 60%;
+  width:0%;
+  //position:absolute; try switching positioning to absolute and ditching the whole #waitingRoomModal and #loginModal id's, since they might not be being used anyway
+}
+
+.waitingTable td {
+  border-style:solid;
+  border-width: thin;
+  border-color: $RUST;
+}
+
+#waitingRoomModal-chatarea {
+  position:relative;
+  overflow: hidden;
+}
+
+#waitingRoomModal-chatarea {
+  height: 500px;
+}
+
+.waitingMessages {
+  position:absolute;
+  bottom:0;
+}
+
+.playerList {
+  top:0;
+}
+.playerListTd {
+  vertical-align:top;
+}
