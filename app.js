@@ -3,13 +3,19 @@ var app = express();
 var http = require('http').Server(app);
 var io = require('socket.io')(http);
 
-var array = require('lodash/array');
+var _ = require('lodash');
+
 
 var rooms = [];
 var testdeck = require('./data/testdeck.json');
 
 var program = require('commander');
 var port = 3012
+
+// Game constants
+const symbols = ["🔵", "🔶", "🔰", "❗️", "💜", "🌞", "🍀", "💋"]
+const COOL = "COOL";
+const HOT = 'HOT';
 
 
 // CLI option handler
@@ -99,17 +105,23 @@ io.on('connection', function(socket){
     socket.broadcast.in(socket.room).emit('chat message', {text:message, sentBy:socket.name}); //FIXME: Use room code. not total broadcast
   });
 
+  socket.on('start game', function() {
+    io.in(socket.room).emit('game starting');
+    rooms[socket.room].newGame();
+  });
+
+
 
 });
 
-// Game helper functions and logic
+// Game helper functions
 var Room = function Room(name) {
   this.name = name;
   this.maxPlayers = 2;
   this.deck = testdeck;
   this.players = [];
   this.playing = false;
-}
+};
 Room.prototype = {
   addUser: function addUser(user) {
     if (this.players.length == this.maxPlayers) {
@@ -127,7 +139,7 @@ Room.prototype = {
   },
   clearLeftPlayers: function() {
     var roomName = this.name
-    array.remove(this.players, function(elem) {
+    _.remove(this.players, function(elem) {
       if (elem.left){
         console.log(elem.name + " left room " + roomName);
         elem.broadcast.in(roomName).emit('player left room', elem.name);
@@ -143,6 +155,9 @@ Room.prototype = {
     roomName = this.name;
     console.log(roomName + " disbanded");
     delete rooms[roomName];
+  },
+  newGame: function() {
+    this.game = Game(this);
   },
   getInfo: function getInfo() {
     var roomPlayers = this.players.map(function(player){
@@ -167,7 +182,81 @@ function userDisconnect(socket) {
     rooms[socket.room].clearLeftPlayers();
   }
 }
+
+// In-Game code
+
+// The primary game object that represents present state
+var Game = function Game(room) {
+  // Creates a drawpile of all the cards that will be used in the game
+  // based on the room's settings
+  this.drawPile = createDrawPile(room);
+  this.players = room.players;
+  // Makes sure any left game-data from previous sessions is cleared
+  for (player in this.players) {
+    player.currentCard = null;
+    player.points = 0;
+  }
+
+  // Randomly select a player to go first.
+  this.whoseTurn = _.sample(players);
+  this.drawn = false;
+  this.stage = COOL;
+
+};
+
+var Card = function Card(text, symbol) {
+  this.text = text;
+  this.symbol = symbol;
+}
+
+// This function assigns the text strings to a card with a symbol
+// and randomizes them, to be used in a game
+function createDrawPile(room) {
+  var numSymbols = room.players.length < 4 ? 6 : 8;
+
+  var symbols = symbols.slice(0, numSymbols);
+  var cardStrings = _.shuffle(room.deck.cards);
+  var cards = [];
+
+  var currentSymbol;
+  var splitCardStrings = evenlySplit(cardStrings, numSymbols);
+  for (symbolSet in splitCardStrings) {
+    currentSymbol = symbols.pop();
+    for (cardString in symbolSet) {
+      cards.push(Card(cardString, currentSymbol));
+    }
+  }
+  return cards;
+}
+
+function evenlySplit(a, n) {
+    if (n < 2)
+        return [a];
+
+    var len = a.length,
+            out = [],
+            i = 0,
+            size;
+
+    if (len % n === 0) {
+        size = Math.floor(len / n);
+        while (i < len) {
+            out.push(a.slice(i, i += size));
+        }
+    } else {
+        while (i < len) {
+            size = Math.ceil((len - i) / n--);
+            out.push(a.slice(i, i += size));
+        }
+    }
+
+    return out;
+}
+
+
+
 //TODO: when a room has zero players, delete it
 //TODO: when the server is closed, send a message to all players so their client can handle it
 //TODO: code for when the player disconnects but still has browser open (ie, internet cut out)
 //TODO: PROFANITY FILTERS (swearjar)
+//IDEA: use emoji or icons for symbols
