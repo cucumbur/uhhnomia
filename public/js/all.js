@@ -2,14 +2,18 @@
 //TODO: send initial roominfo to waitingscreen so theres no placeholders
 //TODO: Make a modal to send message popups?
 //TODO: Make playername a variable with global scope, not a component prop ( or use context)
+//TODO: handle disconnect to the server by showing an alert and resetting to the login screen
 // Socket
 var socket = io();
 
 // Game configuration
 const STATE_JOIN = "join";
 const STATE_WAITING = "waiting";
+const STATE_PLAYING = "playing";
 var globalPlayerName = '';
+
 // Root component that handles switching between game screens/states
+
 var Uhhnomia = React.createClass({
   displayName: "Uhhnomia",
 
@@ -26,6 +30,10 @@ var Uhhnomia = React.createClass({
   handleLeaveRoom: function () {
     this.changeGameState(STATE_JOIN);
   },
+  handleStartGameSuccess: function (gameInfo) {
+    this.setState({ initialGameInfo: gameInfo });
+    this.changeGameState(STATE_PLAYING);
+  },
   displayGameScreen: function () {
     switch (this.state.gameState) {
       case STATE_JOIN:
@@ -36,6 +44,13 @@ var Uhhnomia = React.createClass({
       case STATE_WAITING:
         return React.createElement(WaitingScreen, {
           initialRoomInfo: this.state.initialRoomInfo,
+          onLeaveRoom: this.handleLeaveRoom,
+          onStartGameSuccess: this.handleStartGameSuccess
+        });
+        break;
+      case STATE_PLAYING:
+        return React.createElement(GameScreen, {
+          initialGameInfo: this.state.initialGameInfo,
           onLeaveRoom: this.handleLeaveRoom
         });
         break;
@@ -139,6 +154,7 @@ var JoinForm = React.createClass({
 });
 
 // Components for the Waiting room screen
+
 var WaitingScreen = React.createClass({
   displayName: "WaitingScreen",
 
@@ -156,6 +172,9 @@ var WaitingScreen = React.createClass({
     socket.on('update room info', function (roomInfo) {
       wS.setState({ roomName: roomInfo.name, players: roomInfo.players, deckName: roomInfo.deck, maxPlayerCount: roomInfo.maxPlayers });
     });
+    socket.on('start game', function (gameInfo) {
+      wS.props.onStartGameSuccess(gameInfo);
+    });
     socket.on('player joined room', function (playerName) {
       wS.setState({ messages: wS.state.messages.concat([playerName + " joined the room"]) });
       socket.emit('update room info');
@@ -170,7 +189,9 @@ var WaitingScreen = React.createClass({
   },
   componentWillUnmount: function () {
     socket.off('update room info');
+    socket.off('start game');
     socket.off('player joined room');
+    socket.off('player left room');
     socket.off('chat message');
   },
   addChatMessage: function (message) {
@@ -179,6 +200,9 @@ var WaitingScreen = React.createClass({
   handleLeaveRoom: function () {
     socket.emit('leave room');
     this.props.onLeaveRoom();
+  },
+  handleStartGame: function () {
+    socket.emit('start game');
   },
   render: function () {
     return React.createElement(
@@ -191,7 +215,8 @@ var WaitingScreen = React.createClass({
         deckName: this.state.deckName,
         messages: this.state.messages,
         onChatSubmit: this.addChatMessage,
-        onLeaveRoom: this.handleLeaveRoom
+        onLeaveRoom: this.handleLeaveRoom,
+        onStartGame: this.handleStartGame
       })
     );
   }
@@ -279,7 +304,7 @@ var WaitingTable = React.createClass({
           React.createElement(
             "td",
             null,
-            React.createElement("input", { type: "submit", value: "Start" })
+            React.createElement("input", { type: "submit", value: "Start", onClick: this.props.onStartGame })
           ),
           React.createElement(
             "td",
@@ -372,6 +397,259 @@ var WaitingForm = React.createClass({
         onChange: this.handleMessageTextChange
       }),
       React.createElement("input", { type: "submit", value: "Send" })
+    );
+  }
+});
+
+// Components for game screen
+
+var GameScreen = React.createClass({
+  displayName: "GameScreen",
+
+  getInitialState: function () {
+    var initialGameInfo = this.props.initialGameInfo;
+    return { roomName: initialGameInfo.name,
+      players: initialGameInfo.players,
+      whoseTurn: initialGameInfo.whoseTurn,
+      matchup: null
+    };
+  },
+  componentDidMount: function () {
+    var gS = this;
+    socket.on('update game info', function (gameInfo) {
+      gS.setState({ players: gameInfo.players, whoseTurn: gameInfo.whoseTurn, matchup: gameInfo.matchup });
+    });
+  },
+  componentWillUnmount: function () {
+    socket.off('update game info');
+  },
+  getSortedPlayers: function () {
+    var playerList = this.state.players;
+    if (playerList.length == 1) {
+      return playerList;
+    }
+    var sortedPlayers = [];
+
+    var curPlayerIndex = playerList.findIndex(function (player) {
+      return player.name == globalPlayerName;
+    });
+    sortedPlayers.push(playerList[curPlayerIndex]);
+
+    playerList.splice(curPlayerIndex, 1);
+    sortedPlayers = sortedPlayers.concat(playerList.sort());
+    return sortedPlayers;
+  },
+  handleDrawCard: function () {
+    if (!this.isMyTurn()) {
+      return;
+    }
+    socket.emit('draw card');
+  },
+  isMyTurn: function () {
+    return this.state.whoseTurn == globalPlayerName;
+  },
+  render: function () {
+    return React.createElement(
+      "div",
+      { className: "gameScreen" },
+      React.createElement(GameGrid, {
+        roomName: this.state.roomName,
+        sortedPlayers: this.getSortedPlayers(),
+        onDrawCard: this.handleDrawCard,
+        myTurn: this.isMyTurn(),
+        matchup: this.state.matchup
+      })
+    );
+  }
+});
+
+var GameGrid = React.createClass({
+  displayName: "GameGrid",
+
+  getMatchupToGuess: function () {
+    var opponentName = null;
+    if (this.props.matchup && this.props.matchup[0] == globalPlayerName) {
+      opponentName = this.props.matchup[1];
+    } else if (this.props.matchup && this.props.matchup[1] == globalPlayerName) {
+      opponentName = this.props.matchup[0];
+    }
+    if (!opponentName) {
+      return null;
+    }
+    return this.props.sortedPlayers.find(function (p) {
+      return p.name === opponentName;
+    }).topCard.text;
+  },
+  render: function () {
+    return React.createElement(
+      "div",
+      { className: "gameGrid" },
+      React.createElement(
+        "div",
+        { className: "pure-g" },
+        React.createElement(
+          "div",
+          { className: "pure-u-1-3" },
+          "Uhhnomia"
+        ),
+        React.createElement(
+          "div",
+          { className: "pure-u-1-6" },
+          "Name: ",
+          globalPlayerName
+        ),
+        React.createElement(
+          "div",
+          { className: "pure-u-1-6" },
+          "Room: ",
+          this.props.roomName
+        ),
+        React.createElement(
+          "div",
+          { className: "pure-u-1-6" },
+          "Cards Won: 0"
+        ),
+        React.createElement(
+          "div",
+          { className: "pure-u-1-6" },
+          "Cards Left: 42"
+        )
+      ),
+      React.createElement(
+        "div",
+        { className: "pure-g" },
+        React.createElement(
+          "div",
+          { className: "pure-u-1-3" },
+          this.props.sortedPlayers.length > 1 ? this.props.sortedPlayers[1].name : "",
+          React.createElement(GameCard, {
+            text: this.props.sortedPlayers.length > 1 && this.props.sortedPlayers[1].topCard ? this.props.sortedPlayers[1].topCard.text : "",
+            symbol: this.props.sortedPlayers.length > 1 && this.props.sortedPlayers[1].topCard ? this.props.sortedPlayers[1].topCard.symbol : "",
+            matched: this.props.matchup && this.props.sortedPlayers.length > 1 && (this.props.matchup[0] == this.props.sortedPlayers[1].name || this.props.matchup[1] == this.props.sortedPlayers[1].name)
+          })
+        ),
+        React.createElement(
+          "div",
+          { className: "pure-u-1-3" },
+          this.props.sortedPlayers.length > 2 ? this.props.sortedPlayers[2].name : "",
+          React.createElement(GameCard, {
+            text: this.props.sortedPlayers.length > 2 && this.props.sortedPlayers[2].topCard ? this.props.sortedPlayers[2].topCard.text : "",
+            symbol: this.props.sortedPlayers.length > 2 && this.props.sortedPlayers[2].topCard ? this.props.sortedPlayers[2].topCard.symbol : "",
+            matched: this.props.matchup && this.props.sortedPlayers.length > 2 && (this.props.matchup[0] == this.props.sortedPlayers[2].name || this.props.matchup[1] == this.props.sortedPlayers[2].name)
+          })
+        ),
+        React.createElement(
+          "div",
+          { className: "pure-u-1-3" },
+          this.props.sortedPlayers.length > 3 ? this.props.sortedPlayers[3].name : "",
+          React.createElement(GameCard, {
+            text: this.props.sortedPlayers.length > 3 && this.props.sortedPlayers[3].topCard ? this.props.sortedPlayers[3].topCard.text : "",
+            symbol: this.props.sortedPlayers.length > 3 && this.props.sortedPlayers[3].topCard ? this.props.sortedPlayers[3].topCard.symbol : "",
+            matched: this.props.matchup && this.props.sortedPlayers.length > 3 && (this.props.matchup[0] == this.props.sortedPlayers[3].name || this.props.matchup[1] == this.props.sortedPlayers[3].name)
+          })
+        )
+      ),
+      React.createElement(
+        "div",
+        { className: "pure-g" },
+        React.createElement(
+          "div",
+          { className: "pure-u-1-3" },
+          "Drawpile"
+        ),
+        React.createElement(
+          "div",
+          { className: "pure-u-1-3" },
+          "Your Card",
+          React.createElement(GameCard, {
+            text: this.props.sortedPlayers[0].topCard ? this.props.sortedPlayers[0].topCard.text : "",
+            symbol: this.props.sortedPlayers[0].topCard ? this.props.sortedPlayers[0].topCard.symbol : "",
+            matched: this.props.matchup && (this.props.matchup[0] == this.props.sortedPlayers[0].name || this.props.matchup[1] == this.props.sortedPlayers[0].name)
+          })
+        ),
+        React.createElement(
+          "div",
+          { className: "pure-u-1-3" },
+          "Wildcard"
+        )
+      ),
+      React.createElement(
+        "div",
+        { className: "pure-g" },
+        React.createElement(
+          "div",
+          { className: "pure-u-1-3" },
+          "Chat Window"
+        ),
+        React.createElement(
+          "div",
+          { className: "pure-u-1-3" },
+          React.createElement(
+            "form",
+            { className: "pure-form" },
+            React.createElement("input", {
+              type: "text",
+              placeholder: "Blurt your answer!"
+            }),
+            React.createElement("input", { className: "pure-button", type: "submit", value: "Send" })
+          ),
+          React.createElement("br", null),
+          this.getMatchupToGuess() ? this.getMatchupToGuess() : ""
+        ),
+        React.createElement(
+          "div",
+          { className: "pure-u-1-3" },
+          React.createElement(
+            "button",
+            { className: this.props.myTurn && !this.props.matchup ? "pure-button" : "pure-button pure-button-disabled", onClick: this.props.onDrawCard },
+            "Draw"
+          ),
+          React.createElement("br", null),
+          React.createElement(
+            "button",
+            { className: "pure-button pure-button-disabled" },
+            "Approve"
+          ),
+          React.createElement("br", null),
+          React.createElement(
+            "button",
+            { className: "pure-button pure-button-disabled" },
+            "Reject"
+          )
+        )
+      )
+    );
+  }
+});
+
+var GameCard = React.createClass({
+  displayName: "GameCard",
+
+  render: function () {
+    return React.createElement(
+      "div",
+      { className: this.props.matched ? "gameCard-match" : "gameCard" },
+      this.props.text ? this.props.text : "",
+      React.createElement(
+        "div",
+        { className: "symbol symbol-topLeft" },
+        this.props.symbol ? this.props.symbol : ""
+      ),
+      React.createElement(
+        "div",
+        { className: "symbol symbol-topRight" },
+        this.props.symbol ? this.props.symbol : ""
+      ),
+      React.createElement(
+        "div",
+        { className: "symbol symbol-bottomLeft" },
+        this.props.symbol ? this.props.symbol : ""
+      ),
+      React.createElement(
+        "div",
+        { className: "symbol symbol-bottomRight" },
+        this.props.symbol ? this.props.symbol : ""
+      )
     );
   }
 });

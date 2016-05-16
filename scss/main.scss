@@ -26,3 +26,62 @@ ul {
   list-style: none;
   word-wrap:break-word;
 }
+
+
+.pure-g > * {
+  text-align: center;
+}
+.pure-g > * > .gameCard {
+  position: relative;
+  margin: 10px;
+  background-color: $WHITE;
+  height:200px;
+  line-height:200px;
+  border-style:solid;
+  border-color:$RUST;
+  border-width:1px;
+}
+
+
+@keyframes matchBorder {
+  from {border-color:$RUST;}
+  to {border-color:$WHITE;}
+}
+
+.pure-g > * > .gameCard-match {
+  position: relative;
+  margin: 10px;
+  background-color: $CREAM;
+  height:200px;
+  line-height:200px;
+  border-style:dashed;
+  border-color:$RUST;
+  border-width:2px;
+  animation-duration: 500ms;
+  animation-name: matchBorder;
+  animation-iteration-count: infinite;
+  animation-direction: alternate;
+  animation-timing-function: ease-in;
+}
+
+
+.symbol {
+  position: absolute;
+  font-size:24pt;
+}
+.symbol-topLeft {
+  bottom: 75px;
+  left: 10px;
+}
+.symbol-topRight {
+  bottom: 75px;
+  right: 10px;
+}
+.symbol-bottomLeft {
+  bottom: -80px;
+  left: 10px;
+}
+.symbol-bottomRight {
+  bottom: -80px;
+  right: 10px;
+}
