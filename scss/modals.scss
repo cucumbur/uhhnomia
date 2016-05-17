@@ -85,3 +85,9 @@
 .playerListTd {
   vertical-align:top;
 }
+
+.gameOverScreen {
+  background-color: $WHITE;
+  border: 4px dotted $RUST;
+  font-size: 24px;
+}
