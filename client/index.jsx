@@ -3,13 +3,18 @@
 //TODO: Make a modal to send message popups?
 //TODO: Make playername a variable with global scope, not a component prop ( or use context)
 //TODO: handle disconnect to the server by showing an alert and resetting to the login screen
+//TODO: add Sound
 // Socket
+var io = require('socket.io-client');
 var socket = io();
+var React = require('react');
+var ReactDOM = require('react-dom');
 
 // Game configuration
 const STATE_JOIN = "join";
 const STATE_WAITING = "waiting";
 const STATE_PLAYING = "playing";
+const STATE_GAMEOVER = "gameover";
 var globalPlayerName = '';
 
 // Root component that handles switching between game screens/states
@@ -31,6 +36,10 @@ var Uhhnomia = React.createClass({
   handleStartGameSuccess: function(gameInfo) {
     this.setState({initialGameInfo:gameInfo});
     this.changeGameState(STATE_PLAYING);
+  },
+  handleGameOver: function(winnerInfo) {
+    this.setState({winnerInfo:winnerInfo});
+    this.changeGameState(STATE_GAMEOVER);
   },
   displayGameScreen: function () {
     switch (this.state.gameState) {
@@ -54,6 +63,16 @@ var Uhhnomia = React.createClass({
         return (
           <GameScreen
             initialGameInfo={this.state.initialGameInfo}
+            onLeaveRoom={this.handleLeaveRoom}
+            onGameOver={this.handleGameOver}
+          />
+        );
+        break;
+      case (STATE_GAMEOVER):
+        return (
+          <GameOverScreen
+            winnerInfo={this.state.winnerInfo}
+            onPlayAgain={this.handleJoinRoomSuccess}
             onLeaveRoom={this.handleLeaveRoom}
           />
         );
@@ -331,17 +350,24 @@ var GameScreen = React.createClass({
     return {roomName:initialGameInfo.name,
             players:initialGameInfo.players,
             whoseTurn:initialGameInfo.whoseTurn,
-            matchup:null
+            matchup:null,
+            cardsLeft:initialGameInfo.cardsLeft
           };
   },
   componentDidMount: function () {
     var gS = this;
     socket.on('update game info', function(gameInfo) {
-      gS.setState({players:gameInfo.players, whoseTurn:gameInfo.whoseTurn, matchup:gameInfo.matchup});
+      gS.setState({players:gameInfo.players, whoseTurn:gameInfo.whoseTurn, matchup:gameInfo.matchup, cardsLeft:gameInfo.cardsLeft});
     });
+    socket.on('game over', function(winner) {
+      //setTimeout( function() {gS.props.onGameOver(winner);}, 2000 );
+      gS.props.onGameOver(winner);
+    });
+
   },
   componentWillUnmount: function() {
     socket.off('update game info');
+    socket.off('game over');
   },
   getSortedPlayers: function() {
     var playerList = this.state.players;
@@ -363,6 +389,9 @@ var GameScreen = React.createClass({
     }
     socket.emit('draw card');
   },
+  handleAnswerSubmit: function(answer) {
+    socket.emit('matchup answer', answer);
+  },
   isMyTurn: function() {
     return this.state.whoseTurn == globalPlayerName;
   },
@@ -375,6 +404,8 @@ var GameScreen = React.createClass({
           onDrawCard={this.handleDrawCard}
           myTurn={this.isMyTurn()}
           matchup={this.state.matchup}
+          cardsLeft={this.state.cardsLeft}
+          onAnswerSubmit={this.handleAnswerSubmit}
         />
       </div>
     );
@@ -382,6 +413,9 @@ var GameScreen = React.createClass({
 });
 
 var GameGrid = React.createClass({
+  getInitialState: function() {
+    return {answer:''};
+  },
   getMatchupToGuess: function() {
     var opponentName = null;
     if (this.props.matchup && (this.props.matchup[0] == globalPlayerName) ) {
@@ -394,6 +428,24 @@ var GameGrid = React.createClass({
     }
     return this.props.sortedPlayers.find(function(p) {return p.name === opponentName;}).topCard.text;
   },
+  handleAnswerChange: function (e) {
+    this.setState({answer:e.target.value});
+  },
+  handleAnswerSubmit: function(e) {
+    e.preventDefault();
+    this.setState({answer:""});
+    var answer = this.state.answer;
+    if (!answer || !this.isMatched(0)) {
+      return;
+    }
+    this.props.onAnswerSubmit(answer);
+  },
+  isMatched: function(i) {
+    if (this.props.sortedPlayers.length <= i) {
+      return false;
+    }
+    return this.props.matchup && (this.props.matchup[0] == this.props.sortedPlayers[i].name || this.props.matchup[1] == this.props.sortedPlayers[i].name);
+  },
   render: function() {
     return (
       <div className="gameGrid">
@@ -401,32 +453,32 @@ var GameGrid = React.createClass({
             <div className="pure-u-1-3">Uhhnomia</div>
             <div className="pure-u-1-6">Name: {globalPlayerName}</div>
             <div className="pure-u-1-6">Room: {this.props.roomName}</div>
-            <div className="pure-u-1-6">Cards Won: 0</div>
-            <div className="pure-u-1-6">Cards Left: 42</div>
+            <div className="pure-u-1-6">Cards Won: {this.props.sortedPlayers[0].points}</div>
+            <div className="pure-u-1-6">Cards Left: {this.props.cardsLeft}</div>
           </div>
           <div className="pure-g">
             <div className="pure-u-1-3">
-              {this.props.sortedPlayers.length > 1 ? this.props.sortedPlayers[1].name : ""}
+              {this.props.sortedPlayers.length > 1 ? this.props.sortedPlayers[1].name + "  " + this.props.sortedPlayers[1].points : ""}
               <GameCard
                 text={this.props.sortedPlayers.length > 1 && this.props.sortedPlayers[1].topCard ? this.props.sortedPlayers[1].topCard.text : ""}
                 symbol={this.props.sortedPlayers.length > 1 && this.props.sortedPlayers[1].topCard ? this.props.sortedPlayers[1].topCard.symbol : ""}
-                matched={this.props.matchup && this.props.sortedPlayers.length > 1 && (this.props.matchup[0] == this.props.sortedPlayers[1].name || this.props.matchup[1] == this.props.sortedPlayers[1].name)}
+                matched={this.isMatched(1)}
               />
             </div>
             <div className="pure-u-1-3">
-              {this.props.sortedPlayers.length > 2 ? this.props.sortedPlayers[2].name : ""}
+              {this.props.sortedPlayers.length > 2 ? this.props.sortedPlayers[2].name + "  " + this.props.sortedPlayers[2].points  : ""}
               <GameCard
                 text={this.props.sortedPlayers.length > 2 && this.props.sortedPlayers[2].topCard ? this.props.sortedPlayers[2].topCard.text : ""}
                 symbol={this.props.sortedPlayers.length > 2 && this.props.sortedPlayers[2].topCard ? this.props.sortedPlayers[2].topCard.symbol : ""}
-                matched={this.props.matchup && this.props.sortedPlayers.length > 2 && (this.props.matchup[0] == this.props.sortedPlayers[2].name || this.props.matchup[1] == this.props.sortedPlayers[2].name)}
+                matched={this.isMatched(2)}
               />
             </div>
             <div className="pure-u-1-3">
-              {this.props.sortedPlayers.length > 3 ? this.props.sortedPlayers[3].name : ""}
+              {this.props.sortedPlayers.length > 3 ? this.props.sortedPlayers[3].name + "  " + this.props.sortedPlayers[3].points  : ""}
               <GameCard
                 text={this.props.sortedPlayers.length > 3 && this.props.sortedPlayers[3].topCard ? this.props.sortedPlayers[3].topCard.text : ""}
                 symbol={this.props.sortedPlayers.length > 3 && this.props.sortedPlayers[3].topCard ? this.props.sortedPlayers[3].topCard.symbol : ""}
-                matched={this.props.matchup && this.props.sortedPlayers.length > 3 && (this.props.matchup[0] == this.props.sortedPlayers[3].name || this.props.matchup[1] == this.props.sortedPlayers[3].name)}
+                matched={this.isMatched(3)}
               />
             </div>
           </div>
@@ -437,7 +489,7 @@ var GameGrid = React.createClass({
               <GameCard
                 text={this.props.sortedPlayers[0].topCard ? this.props.sortedPlayers[0].topCard.text : ""}
                 symbol={this.props.sortedPlayers[0].topCard ? this.props.sortedPlayers[0].topCard.symbol : ""}
-                matched={this.props.matchup && (this.props.matchup[0] == this.props.sortedPlayers[0].name || this.props.matchup[1] == this.props.sortedPlayers[0].name) }
+                matched={this.isMatched(0)}
               />
             </div>
             <div className="pure-u-1-3">Wildcard</div>
@@ -445,10 +497,12 @@ var GameGrid = React.createClass({
           <div className="pure-g">
             <div className="pure-u-1-3">Chat Window</div>
             <div className="pure-u-1-3">
-              <form className="pure-form">
+              <form className="pure-form" onSubmit={this.handleAnswerSubmit}>
                 <input
                   type="text"
                   placeholder="Blurt your answer!"
+                  value={this.state.answer}
+                  onChange={this.handleAnswerChange}
                 />
               <input className="pure-button" type="submit" value="Send" />
               </form><br />
@@ -478,6 +532,44 @@ var GameCard = React.createClass({
     );
   }
 });
+
+// Component for GameOver screen
+
+var GameOverScreen = React.createClass({
+  getInitialState: function() {
+    return {playAgain:false};
+  },
+  componentDidMount: function () {
+    var gOS = this;
+    socket.on('update room info', function(roomInfo) {
+      if (!gOS.playAgain) {
+        return;
+      }
+      gOS.props.onPlayAgain(roomInfo);
+    });
+  },
+  componentWillUnmount: function() {
+    socket.off('update room info');
+  },
+  leaveRoom: function() {
+    socket.emit('leave room');
+    this.props.onLeaveRoom();
+  },
+  playAgain: function() {
+    this.state.playAgain = true;
+    socket.emit('update room info');
+  },
+  render: function () {
+    return (
+      <div className="gameOverScreen">
+        {this.props.winnerInfo.name + " won the game with " + this.props.winnerInfo.points + " cards!"}
+        <button className="pure-button" onClick={this.playAgain}>Play Again</button>
+        <button className="pure-button" onClick={this.leaveRoom}>Leave Room</button>
+      </div>
+    );
+  }
+});
+
 
 ReactDOM.render(
   <Uhhnomia />,

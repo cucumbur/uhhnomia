@@ -8,7 +8,7 @@ var _ = require('lodash');
 
 var rooms = [];
 var testdeck = require('./data/testdeck.json');
-
+var testdeck_small = require('./data/testdeck_small.json');
 var program = require('commander');
 var port = 3012
 
@@ -95,15 +95,23 @@ io.on('connection', function(socket){
   // Make sure this isn't called redundantly a bunch by every function.
   // Only when prompted to by a single user
   socket.on('update room info', function () {
+    if (rooms[socket.room].playing) {
+      return;
+    }
     io.in(socket.room).emit('update room info', rooms[socket.room].getInfo());
   });
 
   socket.on('chat message', function (message) {
-    //TODO: Handle player leaving a room, removing from roomlist, disbanding room if need be
+    if (rooms[socket.room].playing) {
+      return;
+    }
     socket.broadcast.in(socket.room).emit('chat message', {text:message, sentBy:socket.name}); //FIXME: Use room code. not total broadcast
   });
 
   socket.on('start game', function() {
+    if (rooms[socket.room].playing) {
+      return;
+    }
     rooms[socket.room].newGame();
     console.log(socket.room + " is starting a game");
     io.in(socket.room).emit('start game', rooms[socket.room].game.getInfo());
@@ -111,23 +119,44 @@ io.on('connection', function(socket){
 
   // in-Game socket events!
   socket.on('draw card', function() {
-    if (rooms[socket.room].game.whoseTurn != socket) {
+    if (!rooms[socket.room].game || rooms[socket.room].game.whoseTurn != socket || rooms[socket.room].matchup) {
       return;
     } else {
       let drawnCard = rooms[socket.room].game.drawCard();
       console.log(socket.name + " drew " + drawnCard.symbol + "  card '" + drawnCard.text + "'" );
-      if (rooms[socket.room].game.findMatchup()) {
-        console.log("Matchup in room " + socket.room);
-        // do something
-      } else {
-        console.log("===PRE-advanceTurn() DEBUG");
+      if (!rooms[socket.room].game.findMatchup()) {
         rooms[socket.room].game.advanceTurn();
+      }
+      if (!rooms[socket.room].game) {
+        return;
       }
       io.in(socket.room).emit('update game info', rooms[socket.room].game.getInfo());
     }
   });
 
-
+  socket.on('matchup answer', function(answer) {
+    if (!rooms[socket.room].playing || !rooms[socket.room].game.matchup){
+        return;
+      }
+    if (_.includes(rooms[socket.room].game.matchup, socket)) {
+      console.log(socket.name + " answered their matchup with " + answer);
+      var otherPlayer;
+      if (rooms[socket.room].game.matchup[0] === socket) {
+        otherPlayer = rooms[socket.room].game.matchup[1];
+      } else if (rooms[socket.room].game.matchup[1] === socket) {
+        otherPlayer = rooms[socket.room].game.matchup[0];
+      }
+      socket.cardsWon.push(otherPlayer.cards.pop());
+      socket.points = socket.points + 1;
+      if (!rooms[socket.room].game.findMatchup()) {
+        rooms[socket.room].game.advanceTurn();
+      }
+      if (!rooms[socket.room].game) {
+        return;
+      }
+      io.in(socket.room).emit('update game info', rooms[socket.room].game.getInfo());
+    }
+  });
 
 });
 
@@ -135,7 +164,7 @@ io.on('connection', function(socket){
 var Room = function Room(name) {
   this.name = name;
   this.maxPlayers = 2;
-  this.deck = testdeck;
+  this.deck = testdeck_small;
   this.players = [];
   this.playing = false;
   this.game = null;
@@ -176,7 +205,11 @@ Room.prototype = {
     delete rooms[roomName];
   },
   newGame: function() {
+    if (this.playing) {
+      return;
+    }
     this.game = new Game(this);
+    this.playing = true;
   },
   getInfo: function getInfo() {
     var roomPlayers = this.players.map(function(player){
@@ -215,6 +248,7 @@ var Game = function Game(room) {
   // Makes sure any left game-data from previous sessions is cleared
   for (player in this.players) {
     this.players[player].cards = new Array();
+    this.players[player].cardsWon = new Array();
     this.players[player].points = 0;
   }
 
@@ -237,7 +271,8 @@ Game.prototype = {
       name:this.name,
       players:gamePlayers,
       whoseTurn:this.whoseTurn.name,
-      matchup:gameMatchup
+      matchup:gameMatchup,
+      cardsLeft:this.drawPile.length
     };
     return info;
   },
@@ -246,18 +281,23 @@ Game.prototype = {
     this.drawn = true;
     return _.last(this.whoseTurn.cards);
   },
-  findMatchup: function() {
+  findMatchup: function(updateGame=true) {
     for (player1idx in this.players) {
       for (player2idx in this.players) {
         if (player1idx != player2idx) {
           var player1 = this.players[player1idx], player2 = this.players[player2idx];
           if ( (!_.isEmpty(player1.cards) && !_.isEmpty(player2.cards)) && (_.last(player1.cards).symbol == _.last(player2.cards).symbol) ) {
+            if (!updateGame) {
+              return true;
+            }
             this.matchup = [player1, player2];
+            console.log("Matchup in room " + this.name);
             return true;
           }
         }
       }
     }
+    this.matchup = null;
     return false;
   },
   advanceTurn: function() {
@@ -265,6 +305,11 @@ Game.prototype = {
     // var idx = _.findIndex(sortedPlayers, function(n) { return n == this.whoseTurn.name; });
     // if ((idx + 1) == sortedPlayers.length) {
     // }
+    console.log(DEBUG, "before checkGameOver()");
+    if (this.checkGameOver()){
+      return;
+    }
+    console.log(DEBUG, "checkGameOver() not called");
     var g = this;
     var idx = _.findIndex(this.players, function(n) { return n.name === g.whoseTurn.name; });
     if ((idx + 1) == this.players.length) {
@@ -274,6 +319,24 @@ Game.prototype = {
     }
     this.whoseTurn = this.players[idx];
     this.drawn = false;
+  },
+  checkGameOver: function() {
+    if (this.matchup || this.drawPile.length > 0){
+      console.log(DEBUG, "checkGameOver() is FALSE!!!!");
+      console.log("drawpile length:" + this.drawPile.length);
+      return false;
+    }
+        console.log(DEBUG, "checkGameOver() is TRUE!!!!");
+    let winner = _.reduce(this.players, function(highest, player) {return highest.points >= player.points ? highest : {name:player.name, points:player.points};}, this.players[0]);
+    console.log("Room " + this.name + " finished their game. " + winner.name + " won with " + winner.points + " points");
+    console.log(DEBUG, "checkGameOver()1111");
+    rooms[this.name].playing = false;
+    console.log(DEBUG, "checkGameOver()2222");
+    rooms[this.name].game = null;
+    console.log(DEBUG, "checkGameOver()3333");
+    io.in(this.name).emit('game over', {name:winner.name, points:winner.points});
+    console.log(DEBUG, "checkGameOver() ENNNND");
+    return true;
   }
 };
 
@@ -286,7 +349,7 @@ var Card = function Card(text, symbol) {
 // and randomizes them, to be used in a game
 function createDrawPile(room) {
   //var numSymbols = room.players.length < 4 ? 6 : 8; //TODO: RE-ENABLE THIS FOR PRODUCTION
-  var numSymbols = 4;
+  var numSymbols = 3;
 
   var symbols = SYMBOLS.slice(0, numSymbols);
 
