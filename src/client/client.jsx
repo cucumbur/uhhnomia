@@ -1,9 +1,7 @@
 //TODO: Seperate each screen's set of components into a different file/module
-//TODO: send initial roominfo to waitingscreen so theres no placeholders
 //TODO: Make a modal to send message popups?
-//TODO: Make playername a variable with global scope, not a component prop ( or use context)
 //TODO: handle disconnect to the server by showing an alert and resetting to the login screen
-//TODO: add Sound
+
 // Socket
 var io = require('socket.io-client');
 var socket = io();
@@ -16,6 +14,11 @@ const STATE_WAITING = "waiting";
 const STATE_PLAYING = "playing";
 const STATE_GAMEOVER = "gameover";
 var globalPlayerName = '';
+
+// Audio clips
+var sound_dingGood = new Audio("assets/sounds/ding-good.mp3");
+var sound_dingBad = new Audio("assets/sounds/ding-bad.mp3");
+var sound_matchup = new Audio("assets/sounds/matchup.mp3");
 
 // Root component that handles switching between game screens/states
 
@@ -93,7 +96,12 @@ var Uhhnomia = React.createClass({
 // Components for the Splash Screen and the join box
 
 var SplashScreen = React.createClass({
+  getInitialState: function () {return {playerCount: 0};},
   componentDidMount: function () {
+    socket.emit('update playercount');
+    var pcUpdate = setInterval(() => socket.emit('update playercount'), 2000);
+    this.setState({pcInterval:pcUpdate});
+
     var onJoinRoomSuccess = this.props.onJoinRoomSuccess;
     socket.on('join room success', function (roomInfo) {
       onJoinRoomSuccess(roomInfo);
@@ -102,16 +110,21 @@ var SplashScreen = React.createClass({
       // TODO: give visaul feedback that join room failed here
       alert("Join room failed (it's probably full)");
     });
+    socket.on('update playercount', (playerCount) => this.setState({playerCount:playerCount}));
+
   },
   componentWillUnmount: function() {
     socket.off('join room success');
     socket.off('join room fail');
+    socket.off('update playercount');
+    clearInterval(this.state.pcInterval);
   },
   render: function() {
     return (
       <div className="splashScreen">
         <img  src="/assets/images/logo_large.png" id="splashLogo" />
         <JoinBox />
+        <span>{this.state.playerCount} players online</span>
       </div>
     );
   }
@@ -260,7 +273,7 @@ var WaitingTable = React.createClass({
           <tr>
             <td><input type="submit" value="Leave" onClick={this.props.onLeaveRoom} /></td>
             <td><input type="submit" value="Start" onClick={this.props.onStartGame} /></td>
-            <td colspan="4">
+            <td colSpan="4">
               <WaitingForm onChatSubmit={this.props.onChatSubmit}/>
             </td>
           </tr>
@@ -288,7 +301,7 @@ var PlayerList = React.createClass({
 var WaitingChat = React.createClass({
   render: function() {
     return (
-      <td colspan="4" id="waitingRoomModal-chatarea">
+      <td colSpan="4" id="waitingRoomModal-chatarea">
         <WaitingMessages messages={this.props.messages} />
       </td>
     );
@@ -347,18 +360,64 @@ var WaitingForm = React.createClass({
 var GameScreen = React.createClass({
   getInitialState: function() {
     var initialGameInfo = this.props.initialGameInfo;
+    var sortedPlayers = this.sortPlayers(initialGameInfo.players);
     return {roomName:initialGameInfo.name,
-            players:initialGameInfo.players,
+            players:sortedPlayers,
             whoseTurn:initialGameInfo.whoseTurn,
             matchup:null,
-            cardsLeft:initialGameInfo.cardsLeft
+            cardsLeft:initialGameInfo.cardsLeft,
+            lastMatchup:null,
+            audioMatchup:null,
+            answers:[],
+            voting:false
           };
   },
   componentDidMount: function () {
+    console.log("mounted");
     var gS = this;
+
     socket.on('update game info', function(gameInfo) {
-      gS.setState({players:gameInfo.players, whoseTurn:gameInfo.whoseTurn, matchup:gameInfo.matchup, cardsLeft:gameInfo.cardsLeft});
+      console.log('SR update game info');
+      if (gameInfo.matchup && (gameInfo.lastMatchup != gS.state.audioMatchup)) {
+        gS.setState({audioMatchup:gameInfo.lastMatchup});
+        sound_matchup.play();
+      }
+      console.log("update game info setting state");
+      var sortedPlayers = gS.sortPlayers(gameInfo.players);
+      gS.setState({players:sortedPlayers, whoseTurn:gameInfo.whoseTurn, matchup:gameInfo.matchup, lastMatchup:gameInfo.lastMatchup, cardsLeft:gameInfo.cardsLeft});
+
     });
+
+    socket.on('answer voting', function(answer) {
+      console.log(answer);
+      console.log('SR answer voting');
+      var answer2 = {type:"rejected"};
+      var newAnswerList = gS.state.answers.concat([answer]);
+      gS.setState({answers:newAnswerList, voting:true});
+    });
+
+    socket.on('answer rejected', function() {
+      console.log('SR answer rejected');
+      var answer = {type:"rejected"};
+      var newAnswerList = gS.state.answers.concat([answer]);
+      gS.setState({answers:newAnswerList, voting:false});
+    });
+
+
+    socket.on('answer accepted', function(aG) {
+      console.log("SR answer accepted");
+      let answer = aG.answer;
+      answer.type = "accepted";
+      let gameInfo = aG.gameInfo;
+      if (gameInfo.matchup && (gameInfo.lastMatchup != gS.state.audioMatchup)) {
+        gS.setState({audioMatchup:gameInfo.lastMatchup});
+        sound_matchup.play();
+      }
+      var newAnswerList = gS.state.answers.concat([answer]);
+      var sortedPlayers = gS.sortPlayers(gameInfo.players);
+      gS.setState({players:sortedPlayers, whoseTurn:gameInfo.whoseTurn, matchup:gameInfo.matchup, lastMatchup:gameInfo.lastMatchup, cardsLeft:gameInfo.cardsLeft, answers:newAnswerList, voting:false});
+    });
+
     socket.on('game over', function(winner) {
       //setTimeout( function() {gS.props.onGameOver(winner);}, 2000 );
       gS.props.onGameOver(winner);
@@ -367,10 +426,12 @@ var GameScreen = React.createClass({
   },
   componentWillUnmount: function() {
     socket.off('update game info');
+    socket.off('answer voting');
+    socket.off('answer rejected');
+    socket.off('matchup answer');
     socket.off('game over');
   },
-  getSortedPlayers: function() {
-    var playerList = this.state.players;
+  sortPlayers: function(playerList) {
     if (playerList.length == 1) {
       return playerList;
     }
@@ -381,6 +442,8 @@ var GameScreen = React.createClass({
 
     playerList.splice(curPlayerIndex, 1);
     sortedPlayers = sortedPlayers.concat(playerList.sort());
+    console.log("==== sortedPlayers ===");
+    console.log(sortedPlayers);
     return sortedPlayers;
   },
   handleDrawCard: function () {
@@ -390,22 +453,29 @@ var GameScreen = React.createClass({
     socket.emit('draw card');
   },
   handleAnswerSubmit: function(answer) {
-    socket.emit('matchup answer', answer);
+    socket.emit('submit answer', answer);
+  },
+  handleReject: function() {
+    socket.emit('reject answer');
   },
   isMyTurn: function() {
-    return this.state.whoseTurn == globalPlayerName;
+    return (this.state.whoseTurn == globalPlayerName);
   },
   render: function() {
+    console.log("gamescreen rerender");
     return (
       <div className="gameScreen">
         <GameGrid
           roomName={this.state.roomName}
-          sortedPlayers={this.getSortedPlayers()}
+          sortedPlayers={this.state.players}
           onDrawCard={this.handleDrawCard}
           myTurn={this.isMyTurn()}
           matchup={this.state.matchup}
           cardsLeft={this.state.cardsLeft}
           onAnswerSubmit={this.handleAnswerSubmit}
+          answers={this.state.answers}
+          voting={this.state.voting}
+          onReject={this.handleReject}
         />
       </div>
     );
@@ -419,14 +489,15 @@ var GameGrid = React.createClass({
   getMatchupToGuess: function() {
     var opponentName = null;
     if (this.props.matchup && (this.props.matchup[0] == globalPlayerName) ) {
-      opponentName = this.props.matchup[1]
+      opponentName = this.props.matchup[1];
     } else if (this.props.matchup && (this.props.matchup[1] == globalPlayerName) ) {
-      opponentName = this.props.matchup[0]
+      opponentName = this.props.matchup[0];
     }
     if (!opponentName) {
       return null;
     }
-    return this.props.sortedPlayers.find(function(p) {return p.name === opponentName;}).topCard.text;
+    var cText = this.props.sortedPlayers.find(function(p) {return p.name === opponentName;}).topCard.text;
+    return cText;
   },
   handleAnswerChange: function (e) {
     this.setState({answer:e.target.value});
@@ -438,6 +509,7 @@ var GameGrid = React.createClass({
     if (!answer || !this.isMatched(0)) {
       return;
     }
+    sound_dingGood.play();
     this.props.onAnswerSubmit(answer);
   },
   isMatched: function(i) {
@@ -447,6 +519,7 @@ var GameGrid = React.createClass({
     return this.props.matchup && (this.props.matchup[0] == this.props.sortedPlayers[i].name || this.props.matchup[1] == this.props.sortedPlayers[i].name);
   },
   render: function() {
+    console.log(this.props.sortedPlayers);
     return (
       <div className="gameGrid">
           <div className="pure-g">
@@ -495,7 +568,9 @@ var GameGrid = React.createClass({
             <div className="pure-u-1-3">Wildcard</div>
           </div>
           <div className="pure-g">
-            <div className="pure-u-1-3">Chat Window</div>
+            <div className="pure-u-1-3">Answers
+              <div className="answersContainer"><GameAnswers answers={this.props.answers} /></div>
+            </div>
             <div className="pure-u-1-3">
               <form className="pure-form" onSubmit={this.handleAnswerSubmit}>
                 <input
@@ -510,8 +585,7 @@ var GameGrid = React.createClass({
             </div>
             <div className="pure-u-1-3">
               <button className={this.props.myTurn && !this.props.matchup ? "pure-button" : "pure-button pure-button-disabled"} onClick={this.props.onDrawCard}>Draw</button><br/>
-              <button className="pure-button pure-button-disabled">Approve</button><br/>
-              <button className="pure-button pure-button-disabled">Reject</button>
+              <button className={this.props.voting ? "pure-button" : "pure-button pure-button-disabled"} onClick={this.props.onReject}>Reject</button><br/>
             </div>
           </div>
       </div>
@@ -532,6 +606,32 @@ var GameCard = React.createClass({
     );
   }
 });
+
+var GameAnswers = React.createClass({
+  render: function() {
+    var answerNodes = this.props.answers.map(function(answer) {
+      if (answer.type == "answer") {
+        return (
+          <li>{answer.playerName} answered {answer.cardText} with {answer.answerText}</li>
+        );
+      } else if (answer.type == "accepted") {
+          return (
+            <li>{answer.playerName}s answer was accepted</li>
+          );
+      } else if (answer.type == "rejected") {
+          return (
+            <li>Answer rejected.</li>
+          );
+      }
+    });
+    return (
+        <ul className="gameAnswers">
+          {answerNodes}
+        </ul>
+    );
+  }
+});
+
 
 // Component for GameOver screen
 

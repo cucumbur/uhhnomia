@@ -27,6 +27,19 @@ ul {
   word-wrap:break-word;
 }
 
+.splashScreen {
+  margin: 0 auto;
+  text-align: center;
+  transform: translateY(20%);
+}
+
+.splashScreen > * {
+  text-align: center;
+  margin: 0 auto;
+}
+.splashScreen span {
+  color: $CREAM;
+}
 
 .pure-g > * {
   text-align: center;
@@ -84,4 +97,15 @@ ul {
 .symbol-bottomRight {
   bottom: -80px;
   right: 10px;
+}
+
+.answersContainer {
+  position:relative;
+  overflow: hidden;
+  height:100px;
+  top:15px;
+}
+.gameAnswers {
+  position:absolute;
+  bottom:0;
 }

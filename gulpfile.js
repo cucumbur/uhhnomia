@@ -15,7 +15,7 @@ var sourcemaps = require('gulp-sourcemaps');
 
 // Lint Task
 gulp.task('lint', function() {
-    return gulp.src('client/*.js')
+    return gulp.src('src/client/*.js')
         .pipe(jshint())
         .pipe(jshint.reporter('default'));
 });
@@ -30,13 +30,13 @@ gulp.task('sass', function() {
 // Convert JSX to JS, then Concatenate & Minify JS
 gulp.task('scripts', function() {
   var bundler = browserify({
-    entries: 'client/index.jsx',
+    entries: 'src/client/client.jsx',
     debug: true
   });
   bundler.transform(babelify);
   bundler.bundle()
       .on('error', function (err) { console.error(err); })
-      .pipe(source('index.jsx'))
+      .pipe(source('client.jsx'))
       .pipe(buffer())
       .pipe(sourcemaps.init({ loadMaps: true }))
       .pipe(uglify()) // Use any gulp plugins you want now
@@ -49,7 +49,7 @@ gulp.task('scripts', function() {
 
 // Watch Files For Changes
 gulp.task('watch', function() {
-    gulp.watch('client/*.jsx', ['lint', 'scripts']);
+    gulp.watch('src/client/*.jsx', ['lint', 'scripts']);
     gulp.watch('scss/*.scss', ['sass']);
 });
 

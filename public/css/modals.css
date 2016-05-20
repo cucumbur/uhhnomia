@@ -33,8 +33,7 @@
 .waitingTable {
   background-color: #E6EBE0;
   margin: 100px auto;
-  padding: 0px;
-  width: 0%; }
+  padding: 0px; }
 
 .waitingTable td {
   border-style: solid;
@@ -43,9 +42,7 @@
 
 #waitingRoomModal-chatarea {
   position: relative;
-  overflow: hidden; }
-
-#waitingRoomModal-chatarea {
+  overflow: hidden;
   height: 500px; }
 
 .waitingMessages {

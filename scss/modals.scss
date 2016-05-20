@@ -55,7 +55,6 @@
   margin: 100px auto;
   padding: 0px;
   //width: 60%;
-  width:0%;
   //position:absolute; try switching positioning to absolute and ditching the whole #waitingRoomModal and #loginModal id's, since they might not be being used anyway
 }
 
@@ -68,9 +67,6 @@
 #waitingRoomModal-chatarea {
   position:relative;
   overflow: hidden;
-}
-
-#waitingRoomModal-chatarea {
   height: 500px;
 }
 
