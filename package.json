@@ -4,7 +4,7 @@
   "description": "Words! Symbols! Cards! Match! Go!",
   "main": "app.js",
   "scripts": {
-    "test": "mocha"
+    "test": "standard \"src/**/*.js\" \"src/**/*.jsx\" \"lib/**/*.js\" \"server.js\" \"test.js\" && mocha"
   },
   "repository": {
     "type": "git",
@@ -48,6 +48,7 @@
     "jshint": "^2.9.2",
     "mocha": "^2.4.5",
     "simple-mock": "^0.7.0",
+    "standard": "^8.6.0",
     "vinyl-buffer": "^1.0.0",
     "vinyl-source-stream": "^1.1.0"
   }
