@@ -71,7 +71,7 @@ io.on('connection', function (socket) {
     socket.name = loginData.userName
     console.log(socket.name + ' attempting to join ' + roomName)
     if (!rooms[roomName]) {
-      rooms[roomName] = new Room(roomName, 'classic')
+      rooms[roomName] = new Room(roomName, decks['classic'])
       rooms[roomName].addUser(socket)
       socket.room = roomName
       console.log(socket.name + ' created new room ' + roomName)
@@ -133,7 +133,7 @@ io.on('connection', function (socket) {
       return
     } else {
       let drawnCard = rooms[socket.room].game.drawCard()
-      console.log(socket.name + ' drew ' + drawnCard.symbol + ' card "' + drawnCard.text + '"')
+      console.log(socket.name + ' drew ' + drawnCard.symbol + '  card "' + drawnCard.text + '"')
       if (!rooms[socket.room].game.findMatchup()) {
         rooms[socket.room].game.advanceTurn()
       }
