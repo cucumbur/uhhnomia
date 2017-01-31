@@ -30,13 +30,13 @@ gulp.task('sass', function () {
 // Convert JSX to JS, then Concatenate & Minify JS
 gulp.task('scripts', function () {
   var bundler = browserify({
-    entries: 'client/client.js',
+    entries: 'client/index.js',
     debug: true
   })
   bundler.transform(babelify)
   bundler.bundle()
       .on('error', function (err) { console.error(err) })
-      .pipe(source('client.js'))
+      .pipe(source('index.js'))
       .pipe(buffer())
       .pipe(sourcemaps.init({ loadMaps: true }))
       .pipe(uglify()) // Use any gulp plugins you want now
@@ -47,7 +47,8 @@ gulp.task('scripts', function () {
 
 // Watch Files For Changes
 gulp.task('watch', function () {
-  gulp.watch('src/client/*.jsx', ['lint', 'scripts'])
+  gulp.watch('./client/*.js', ['lint', 'scripts'])
+  gulp.watch('./client/**/*.js', ['lint', 'scripts'])
   gulp.watch('scss/*.scss', ['sass'])
 })
 

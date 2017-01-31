@@ -4,7 +4,7 @@
   "description": "Words! Symbols! Cards! Match! Go!",
   "main": "app.js",
   "scripts": {
-    "test": "standard \"src/**/*.js\" \"src/**/*.jsx\" \"lib/**/*.js\" \"server.js\" \"test.js\" && mocha"
+    "test": "standard \"client/**/*.js\" \"lib/**/*.js\" \"server.js\" \"test.js\" && mocha"
   },
   "repository": {
     "type": "git",
